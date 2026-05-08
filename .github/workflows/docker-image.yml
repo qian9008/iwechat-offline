@@ -6,13 +6,43 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# 设置权限，允许 Action 修改包（Packages）
+permissions:
+  contents: read
+  packages: write
+
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. 登录到 GitHub 容器镜像仓库
+      # 注意：GITHUB_TOKEN 是内置变量，不需要你手动去 Secrets 里设置
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. 提取镜像标签（自动生成 :main 和 :sha-xxxx 等标签）
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha
+            latest
+
+      # 3. 构建并推送镜像
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
