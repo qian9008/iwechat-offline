@@ -1,18 +1,3 @@
-name: Docker Image CI
-
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  # 这里开启了手动运行按钮
-  workflow_dispatch:
-
-# 必须设置权限，否则无法推送镜像到 GitHub Packages
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -21,7 +6,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. 登录 GitHub 容器仓库 (GHCR)
+      # --- 增加：在 GitHub Actions 环境中编译，确保二进制文件是 Linux 格式 ---
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22' # 根据你的代码需求调整版本
+
+      - name: Build Binary
+        run: |
+          # CGO_ENABLED=0 确保静态链接，不依赖宿主机动态库
+          # GOOS=linux GOARCH=amd64 确保编译出的是 Linux x86 二进制
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp main.go 
+
+      # --- 确认文件格式（调试用，可在 Actions 日志中查看） ---
+      - name: Check binary format
+        run: file myapp
+      # -----------------------------------------------------------
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -29,7 +30,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. 自动生成镜像标签 (例如: latest, sha-1a2b3c4)
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -37,10 +37,8 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=sha
-            type=ref,event=branch
             latest
 
-      # 3. 构建并推送镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
