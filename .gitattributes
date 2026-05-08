@@ -1,2 +1,0 @@
-myapp filter=lfs diff=lfs merge=lfs -text
-myapp.exe filter=lfs diff=lfs merge=lfs -text
