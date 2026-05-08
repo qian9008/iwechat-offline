@@ -1,7 +1,6 @@
 FROM ubuntu:22.04
 
-# 1. 系统基础环境配置
-# 移除阿里云替换逻辑，直接使用官方源，增加重试机制解决网络波动
+# 1. 基础环境安装 (移除 sed 换源逻辑，直接使用官方源)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     tzdata \
@@ -16,29 +15,30 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 2. 生成 Supervisor 配置文件
-RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor
+# 2. 准备目录
+WORKDIR /app
+RUN mkdir -p /etc/supervisor/conf.d
 
+# 3. 写入 Supervisor 配置 (核心修复：增加 directory=/app)
 RUN echo '[supervisord]\nnodaemon=true\nuser=root\n\n[unix_http_server]\nfile=/tmp/supervisor.sock\nchmod=0700\n\n[supervisorctl]\nserverurl=unix:///tmp/supervisor.sock\n\n[rpcinterface:supervisor]\nsupervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface\n\n[include]\nfiles = /etc/supervisor/conf.d/*.conf' > /etc/supervisor/supervisord.conf
 
-# Redis 启动配置
+# Redis 配置
 RUN echo '[program:redis]\ncommand=redis-server --protected-mode no\nautostart=true\nautorestart=true' > /etc/supervisor/conf.d/01_redis.conf
 
-# myapp 启动配置 (关键：directory=/app)
+# 服务端程序配置 (myapp 是指镜像里的服务端，directory=/app 解决模板路径 panic)
 RUN echo '[program:myapp]\ncommand=/app/myapp\ndirectory=/app\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nredirect_stderr=true' > /etc/supervisor/conf.d/99_myapp.conf
 
-# 3. 复制项目文件
-WORKDIR /app
-# 再次确认：此处的 myapp 必须是你从作者那下载的 Linux 版本，重命名为 myapp
+# 4. 复制服务端文件
+# 注意：这里的 myapp 是你通过 GitHub Actions 编译出来的 Linux 服务端
 COPY myapp /app/myapp
 COPY assets /app/assets
 COPY static /app/static
 COPY scripts /app/scripts
 
-# 4. 权限与路径修复
+# 5. 权限与路径补丁
 RUN chmod +x /app/myapp /app/scripts/*.sh /app/scripts/*.py
 
-# 处理模板后缀兼容性
+# 处理模板后缀兼容性：把 .tmpl 复制为 .html，防止程序匹配不到文件
 RUN if [ -d "/app/static/templates" ]; then \
     cd /app/static/templates && \
     for f in *.tmpl; do cp "$f" "${f%.tmpl}.html" 2>/dev/null || true; done; \
