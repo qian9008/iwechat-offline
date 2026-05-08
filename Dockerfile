@@ -8,13 +8,13 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && 
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
-# Install curl, ca-certificates, redis, python3 and supervisor (删除了 mariadb-server)
+# 安装基础组件（已移除 mariadb）
 RUN apt-get update && apt-get install -y curl ca-certificates redis-server python3 supervisor
 
 # 创建 supervisor 配置目录
 RUN mkdir -p /etc/supervisor/conf.d
 
-# 创建 supervisord.conf 配置文件
+# 修正后的 supervisord.conf 生成脚本
 RUN echo '[supervisord]' > /etc/supervisor/supervisord.conf && \
     echo 'nodaemon=true' >> /etc/supervisor/supervisord.conf && \
     echo 'user=root' >> /etc/supervisor/supervisord.conf && \
@@ -25,7 +25,7 @@ RUN echo '[supervisord]' > /etc/supervisor/supervisord.conf && \
     echo 'username=admin' >> /etc/supervisor/supervisord.conf && \
     echo 'password=yourpassword' >> /etc/supervisor/supervisord.conf && \
     echo '[supervisorctl]' >> /etc/supervisor/supervisord.conf && \
-    serverurl=unix:///var/run/supervisor.sock' >> /etc/supervisor/supervisord.conf && \
+    echo 'serverurl=unix:///var/run/supervisor.sock' >> /etc/supervisor/supervisord.conf && \
     echo 'username=admin' >> /etc/supervisor/supervisord.conf && \
     echo 'password=yourpassword' >> /etc/supervisor/supervisord.conf && \
     echo '[rpcinterface:supervisor]' >> /etc/supervisor/supervisord.conf && \
@@ -33,7 +33,7 @@ RUN echo '[supervisord]' > /etc/supervisor/supervisord.conf && \
     echo '[include]' >> /etc/supervisor/supervisord.conf && \
     echo 'files = /etc/supervisor/conf.d/*.conf' >> /etc/supervisor/supervisord.conf
 
-# Add supervisor config for redis
+# Redis 配置
 RUN echo '[program:redis]' > /etc/supervisor/conf.d/01_redis.conf && \
     echo 'command=/bin/bash /app/scripts/start-redis.sh' >> /etc/supervisor/conf.d/01_redis.conf && \
     echo 'autostart=true' >> /etc/supervisor/conf.d/01_redis.conf && \
@@ -41,7 +41,7 @@ RUN echo '[program:redis]' > /etc/supervisor/conf.d/01_redis.conf && \
     echo 'stderr_logfile=/var/log/redis.err.log' >> /etc/supervisor/conf.d/01_redis.conf && \
     echo 'stdout_logfile=/var/log/redis.out.log' >> /etc/supervisor/conf.d/01_redis.conf
 
-# Add supervisor config for periodic Redis GC
+# Redis GC 配置
 RUN echo '[program:redis_gc]' > /etc/supervisor/conf.d/03_redis_gc.conf && \
     echo 'command=/bin/bash /app/scripts/redis_gc_loop.sh' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
     echo 'autostart=true' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
@@ -51,9 +51,7 @@ RUN echo '[program:redis_gc]' > /etc/supervisor/conf.d/03_redis_gc.conf && \
     echo 'stdout_logfile_maxbytes=0' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
     echo 'redirect_stderr=true' >> /etc/supervisor/conf.d/03_redis_gc.conf
 
-# (删除了 [program:mariadb] 的 Supervisor 配置)
-
-# Add supervisor config for myapp
+# Myapp 配置
 RUN echo '[program:myapp]' > /etc/supervisor/conf.d/99_myapp.conf && \
     echo 'command=/app/myapp' >> /etc/supervisor/conf.d/99_myapp.conf && \
     echo 'autostart=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
@@ -62,8 +60,6 @@ RUN echo '[program:myapp]' > /etc/supervisor/conf.d/99_myapp.conf && \
     echo 'stdout_logfile_maxbytes=0' >> /etc/supervisor/conf.d/99_myapp.conf && \
     echo 'redirect_stderr=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
     echo 'stdout_events_enabled=true' >> /etc/supervisor/conf.d/99_myapp.conf
-
-# (删除了 MariaDB 密码设置和数据库创建的 RUN 指令)
 
 LABEL maintainer="exthirteen"
 ENV LANG=C.UTF-8
