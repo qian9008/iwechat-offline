@@ -5,10 +5,8 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  # 开启手动运行按钮
   workflow_dispatch:
 
-# 设置权限
 permissions:
   contents: read
   packages: write
@@ -21,7 +19,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. 编译 Linux 版本的二进制文件
+      # 第一步：编译适用于 Linux 的 Go 二进制文件
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -31,7 +29,7 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp main.go
 
-      # 2. 登录 GitHub 镜像仓库
+      # 第二步：登录 GitHub 容器仓库
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -39,7 +37,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 3. 提取镜像标签
+      # 第三步：生成镜像标签
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -49,7 +47,7 @@ jobs:
             type=sha
             latest
 
-      # 4. 构建并推送 Docker 镜像
+      # 第四步：构建并推送镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
