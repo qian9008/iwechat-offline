@@ -1,85 +1,48 @@
 FROM ubuntu:22.04
 
-# 替换为阿里云镜像源
+# 1. 基础环境与时区
 RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
     sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
     apt-get update && \
-    apt-get install -y tzdata && \
+    apt-get install -y tzdata curl ca-certificates redis-server python3 supervisor && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     dpkg-reconfigure -f noninteractive tzdata
 
-# 安装基础依赖
-RUN apt-get update && apt-get install -y curl ca-certificates redis-server python3 supervisor
-
-# 创建配置目录
+# 2. 准备目录结构
+WORKDIR /app
 RUN mkdir -p /etc/supervisor/conf.d
 
-# 生成 supervisord.conf 配置文件
-# 注意：将 .sock 文件路径改到 /tmp 以避免权限和残留问题
-RUN echo '[supervisord]' > /etc/supervisor/supervisord.conf && \
-    echo 'nodaemon=true' >> /etc/supervisor/supervisord.conf && \
-    echo 'user=root' >> /etc/supervisor/supervisord.conf && \
-    echo 'loglevel=info' >> /etc/supervisor/supervisord.conf && \
-    echo '[unix_http_server]' >> /etc/supervisor/supervisord.conf && \
-    echo 'file=/tmp/supervisor.sock' >> /etc/supervisor/supervisord.conf && \
-    echo 'chmod=0700' >> /etc/supervisor/supervisord.conf && \
-    echo 'username=admin' >> /etc/supervisor/supervisord.conf && \
-    echo 'password=yourpassword' >> /etc/supervisor/supervisord.conf && \
-    echo '[supervisorctl]' >> /etc/supervisor/supervisord.conf && \
-    echo 'serverurl=unix:///tmp/supervisor.sock' >> /etc/supervisor/supervisord.conf && \
-    echo 'username=admin' >> /etc/supervisor/supervisord.conf && \
-    echo 'password=yourpassword' >> /etc/supervisor/supervisord.conf && \
-    echo '[rpcinterface:supervisor]' >> /etc/supervisor/supervisord.conf && \
-    echo 'supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface' >> /etc/supervisor/supervisord.conf && \
-    echo '[include]' >> /etc/supervisor/supervisord.conf && \
-    echo 'files = /etc/supervisor/conf.d/*.conf' >> /etc/supervisor/supervisord.conf
+# 3. 写入全量 Supervisor 配置 (一次性写入，避免格式乱序)
+RUN echo '[supervisord]\nnodaemon=true\nuser=root\n\n[unix_http_server]\nfile=/tmp/supervisor.sock\nchmod=0700\n\n[supervisorctl]\nserverurl=unix:///tmp/supervisor.sock\n\n[rpcinterface:supervisor]\nsupervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface\n\n[include]\nfiles = /etc/supervisor/conf.d/*.conf' > /etc/supervisor/supervisord.conf
 
-# Redis 配置：增加 --protected-mode no 解决连接被拒问题
-RUN echo '[program:redis]' > /etc/supervisor/conf.d/01_redis.conf && \
-    echo 'command=redis-server --protected-mode no' >> /etc/supervisor/conf.d/01_redis.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/01_redis.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/01_redis.conf && \
-    echo 'stderr_logfile=/var/log/redis.err.log' >> /etc/supervisor/conf.d/01_redis.conf && \
-    echo 'stdout_logfile=/var/log/redis.out.log' >> /etc/supervisor/conf.d/01_redis.conf
+# Redis 配置
+RUN echo '[program:redis]\ncommand=redis-server --protected-mode no\nautostart=true\nautorestart=true' > /etc/supervisor/conf.d/01_redis.conf
 
-# Redis GC 配置
-RUN echo '[program:redis_gc]' > /etc/supervisor/conf.d/03_redis_gc.conf && \
-    echo 'command=/bin/bash /app/scripts/redis_gc_loop.sh' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
-    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
-    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
-    echo 'redirect_stderr=true' >> /etc/supervisor/conf.d/03_redis_gc.conf
+# myapp 配置 - 增加 directory 参数并使用 bash 启动以增强兼容性
+RUN echo '[program:myapp]\ncommand=/app/myapp\ndirectory=/app\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nredirect_stderr=true' > /etc/supervisor/conf.d/99_myapp.conf
 
-# myapp 配置：增加 directory=/app 解决模板找不到的问题
-RUN echo '[program:myapp]' > /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'command=/app/myapp' >> /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'directory=/app' >> /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'redirect_stderr=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
-    echo 'stdout_events_enabled=true' >> /etc/supervisor/conf.d/99_myapp.conf
+# 4. 复制项目文件
+# 请确保这些文件在你的 GitHub 仓库根目录下
+COPY myapp /app/myapp
+COPY assets /app/assets
+COPY static /app/static
+COPY scripts /app/scripts
 
-LABEL maintainer="exthirteen"
-ENV LANG=C.UTF-8
-ENV REDIS_GC_CUTOFF_DAYS=3
-ENV REDIS_GC_INTERVAL_SECONDS=259200
-ENV REDIS_GC_INITIAL_DELAY_SECONDS=120
-ENV REDIS_GC_SCAN_COUNT=1000
-ENV REDIS_GC_FALLBACK_FLUSHDB=true
-
-WORKDIR /app
-ADD myapp /app/myapp
-ADD assets /app/assets
-ADD static /app/static
-ADD scripts /app/scripts
-
-# 确保所有脚本和程序都有执行权限
+# 5. 权限与路径补全
 RUN chmod +x /app/myapp /app/scripts/*.sh /app/scripts/*.py
 
-# 暴露端口
+# 【关键点 A】创建根目录软链接，防止程序去找 /static 而不是 ./static
+RUN ln -s /app/static /static || true
+
+# 【关键点 B】处理模板后缀名，把 .tmpl 全部复制一份成 .html
+RUN if [ -d "/app/static/templates" ]; then \
+    cd /app/static/templates && \
+    for f in *.tmpl; do cp "$f" "${f%.tmpl}.html" 2>/dev/null || true; done; \
+    fi
+
+# 6. 环境参数
+LABEL maintainer="exthirteen"
+ENV LANG=C.UTF-8
 EXPOSE 8849
 
 CMD ["supervisord", "-c", "/etc/supervisor/supervisord.conf"]
