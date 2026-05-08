@@ -19,7 +19,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 第一步：编译适用于 Linux 的 Go 二进制文件
+      # 第一步：现场编译 Linux 版本的二进制文件
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -27,19 +27,19 @@ jobs:
 
       - name: Build Binary
         run: |
-          # 如果没有 go.mod，则初始化（假设你的项目名叫 myapp）
+          # 如果你的仓库里没有 go.mod，自动初始化一个
           if [ ! -f go.mod ]; then
             go mod init myapp
           fi
           
-          # 整理依赖
-          go mod tidy
+          # 尝试整理依赖，忽略可能的网络报错继续执行
+          go mod tidy || true
           
-          # 编译程序
-          # 注意：这里直接编译当前目录 "."，Go 会自动寻找带有 main 函数的文件
+          # 核心：编译出 Linux 环境下的 amd64 格式可执行文件
+          # 使用 -o myapp 确保输出文件名与 Dockerfile 里的 ADD 匹配
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp .
 
-      # 第二步：登录 GitHub 容器仓库
+      # 第二步：登录仓库
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -47,21 +47,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 第三步：生成镜像标签
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=sha
-            latest
-
-      # 第四步：构建并推送镜像
+      # 第三步：构建并推送镜像（此时 Dockerfile 会把上面编译好的 myapp 塞进去）
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/${{ github.repository }}:latest
