@@ -1,49 +1,84 @@
 FROM ubuntu:22.04
 
-# 1. 基础环境安装 (移除 sed 换源逻辑，直接使用官方源)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    tzdata \
-    curl \
-    ca-certificates \
-    redis-server \
-    python3 \
-    supervisor && \
+# 替换为阿里云镜像源
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get install -y tzdata && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
-    echo "Asia/Shanghai" > /etc/timezone && \
-    dpkg-reconfigure -f noninteractive tzdata && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    dpkg-reconfigure -f noninteractive tzdata
 
-# 2. 准备目录
-WORKDIR /app
+# Install curl, ca-certificates, redis, python3 and supervisor (删除了 mariadb-server)
+RUN apt-get update && apt-get install -y curl ca-certificates redis-server python3 supervisor
+
+# 创建 supervisor 配置目录
 RUN mkdir -p /etc/supervisor/conf.d
 
-# 3. 写入 Supervisor 配置 (核心修复：增加 directory=/app)
-RUN echo '[supervisord]\nnodaemon=true\nuser=root\n\n[unix_http_server]\nfile=/tmp/supervisor.sock\nchmod=0700\n\n[supervisorctl]\nserverurl=unix:///tmp/supervisor.sock\n\n[rpcinterface:supervisor]\nsupervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface\n\n[include]\nfiles = /etc/supervisor/conf.d/*.conf' > /etc/supervisor/supervisord.conf
+# 创建 supervisord.conf 配置文件
+RUN echo '[supervisord]' > /etc/supervisor/supervisord.conf && \
+    echo 'nodaemon=true' >> /etc/supervisor/supervisord.conf && \
+    echo 'user=root' >> /etc/supervisor/supervisord.conf && \
+    echo 'loglevel=info' >> /etc/supervisor/supervisord.conf && \
+    echo '[unix_http_server]' >> /etc/supervisor/supervisord.conf && \
+    echo 'file=/var/run/supervisor.sock' >> /etc/supervisor/supervisord.conf && \
+    echo 'chmod=0700' >> /etc/supervisor/supervisord.conf && \
+    echo 'username=admin' >> /etc/supervisor/supervisord.conf && \
+    echo 'password=yourpassword' >> /etc/supervisor/supervisord.conf && \
+    echo '[supervisorctl]' >> /etc/supervisor/supervisord.conf && \
+    serverurl=unix:///var/run/supervisor.sock' >> /etc/supervisor/supervisord.conf && \
+    echo 'username=admin' >> /etc/supervisor/supervisord.conf && \
+    echo 'password=yourpassword' >> /etc/supervisor/supervisord.conf && \
+    echo '[rpcinterface:supervisor]' >> /etc/supervisor/supervisord.conf && \
+    echo 'supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface' >> /etc/supervisor/supervisord.conf && \
+    echo '[include]' >> /etc/supervisor/supervisord.conf && \
+    echo 'files = /etc/supervisor/conf.d/*.conf' >> /etc/supervisor/supervisord.conf
 
-# Redis 配置
-RUN echo '[program:redis]\ncommand=redis-server --protected-mode no\nautostart=true\nautorestart=true' > /etc/supervisor/conf.d/01_redis.conf
+# Add supervisor config for redis
+RUN echo '[program:redis]' > /etc/supervisor/conf.d/01_redis.conf && \
+    echo 'command=/bin/bash /app/scripts/start-redis.sh' >> /etc/supervisor/conf.d/01_redis.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/01_redis.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/01_redis.conf && \
+    echo 'stderr_logfile=/var/log/redis.err.log' >> /etc/supervisor/conf.d/01_redis.conf && \
+    echo 'stdout_logfile=/var/log/redis.out.log' >> /etc/supervisor/conf.d/01_redis.conf
 
-# 服务端程序配置 (myapp 是指镜像里的服务端，directory=/app 解决模板路径 panic)
-RUN echo '[program:myapp]\ncommand=/app/myapp\ndirectory=/app\nautostart=true\nautorestart=true\nstdout_logfile=/dev/stdout\nstdout_logfile_maxbytes=0\nredirect_stderr=true' > /etc/supervisor/conf.d/99_myapp.conf
+# Add supervisor config for periodic Redis GC
+RUN echo '[program:redis_gc]' > /etc/supervisor/conf.d/03_redis_gc.conf && \
+    echo 'command=/bin/bash /app/scripts/redis_gc_loop.sh' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
+    echo 'startsecs=0' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
+    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
+    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisor/conf.d/03_redis_gc.conf && \
+    echo 'redirect_stderr=true' >> /etc/supervisor/conf.d/03_redis_gc.conf
 
-# 4. 复制服务端文件
-# 注意：这里的 myapp 是你通过 GitHub Actions 编译出来的 Linux 服务端
-COPY myapp /app/myapp
-COPY assets /app/assets
-COPY static /app/static
-COPY scripts /app/scripts
+# (删除了 [program:mariadb] 的 Supervisor 配置)
 
-# 5. 权限与路径补丁
+# Add supervisor config for myapp
+RUN echo '[program:myapp]' > /etc/supervisor/conf.d/99_myapp.conf && \
+    echo 'command=/app/myapp' >> /etc/supervisor/conf.d/99_myapp.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
+    echo 'stdout_logfile=/dev/stdout' >> /etc/supervisor/conf.d/99_myapp.conf && \
+    echo 'stdout_logfile_maxbytes=0' >> /etc/supervisor/conf.d/99_myapp.conf && \
+    echo 'redirect_stderr=true' >> /etc/supervisor/conf.d/99_myapp.conf && \
+    echo 'stdout_events_enabled=true' >> /etc/supervisor/conf.d/99_myapp.conf
+
+# (删除了 MariaDB 密码设置和数据库创建的 RUN 指令)
+
+LABEL maintainer="exthirteen"
+ENV LANG=C.UTF-8
+ENV REDIS_GC_CUTOFF_DAYS=3
+ENV REDIS_GC_INTERVAL_SECONDS=259200
+ENV REDIS_GC_INITIAL_DELAY_SECONDS=120
+ENV REDIS_GC_SCAN_COUNT=1000
+ENV REDIS_GC_FALLBACK_FLUSHDB=true
+
+WORKDIR /app
+ADD myapp /app/myapp
+ADD assets /app/assets
+ADD static /app/static
+ADD scripts /app/scripts
 RUN chmod +x /app/myapp /app/scripts/*.sh /app/scripts/*.py
 
-# 处理模板后缀兼容性：把 .tmpl 复制为 .html，防止程序匹配不到文件
-RUN if [ -d "/app/static/templates" ]; then \
-    cd /app/static/templates && \
-    for f in *.tmpl; do cp "$f" "${f%.tmpl}.html" 2>/dev/null || true; done; \
-    fi
-
 EXPOSE 8849
-
 CMD ["supervisord", "-c", "/etc/supervisor/supervisord.conf"]
