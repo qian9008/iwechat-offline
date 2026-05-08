@@ -3,8 +3,12 @@ name: Docker Image CI
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  # 支持手动运行
   workflow_dispatch:
 
+# 必须设置权限，否则无法推送到 GitHub Packages
 permissions:
   contents: read
   packages: write
@@ -17,33 +21,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 编译服务端程序 (Linux 版本)
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-
-      - name: Build Server Binary
-        run: |
-          # 自动初始化 go.mod (如果不存在 )
-          if [ ! -f go.mod ]; then
-            go mod init server
-          fi
-          go mod tidy || true
-          
-          # 编译成 Linux 版本的 amd64 二进制文件
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp .
-
-      - name: Log in to GHCR
+      # 1. 登录 GitHub 容器仓库 (GHCR)
+      - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
+          # github.actor 是你的用户名，GITHUB_TOKEN 是自动生成的授权码
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 2. 自动生成镜像标签 (ghcr.io/你的用户名/仓库名:latest)
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=sha
+            latest
+
+      # 3. 执行构建并推送
+      # 这步等同于原作者的 docker build，只是加上了 push 动作
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
