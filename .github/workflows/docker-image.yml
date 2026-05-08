@@ -1,17 +1,17 @@
 name: Docker Image CI
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  # 这里开启了手动运行按钮
-  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  # 开启手动运行按钮
+  workflow_dispatch:
 
-# 必须设置权限，否则无法推送镜像到 GitHub Packages
+# 设置权限
 permissions:
-  contents: read
-  packages: write
+  contents: read
+  packages: write
 
 jobs:
   build-and-push:
@@ -21,23 +21,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # --- 增加：在 GitHub Actions 环境中编译，确保二进制文件是 Linux 格式 ---
+      # 1. 编译 Linux 版本的二进制文件
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22' # 根据你的代码需求调整版本
+          go-version: '1.22'
 
       - name: Build Binary
         run: |
-          # CGO_ENABLED=0 确保静态链接，不依赖宿主机动态库
-          # GOOS=linux GOARCH=amd64 确保编译出的是 Linux x86 二进制
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp main.go 
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp main.go
 
-      # --- 确认文件格式（调试用，可在 Actions 日志中查看） ---
-      - name: Check binary format
-        run: file myapp
-      # -----------------------------------------------------------
-
+      # 2. 登录 GitHub 镜像仓库
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -45,6 +39,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 3. 提取镜像标签
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -54,6 +49,7 @@ jobs:
             type=sha
             latest
 
+      # 4. 构建并推送 Docker 镜像
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -61,4 +57,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
