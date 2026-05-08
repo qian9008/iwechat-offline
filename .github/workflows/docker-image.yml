@@ -25,7 +25,7 @@ jobs:
 
       - name: Build Server Binary
         run: |
-          # 自动初始化 go.mod (如果不存在)
+          # 自动初始化 go.mod (如果不存在 )
           if [ ! -f go.mod ]; then
             go mod init server
           fi
