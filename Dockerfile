@@ -1,12 +1,20 @@
 FROM ubuntu:22.04
 
-# 1. 基础环境配置
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
+
+
+# 使用更可靠的方式替换阿里云镜像源，并处理 tzdata
+RUN apt-get update && apt-get install -y ca-certificates && \
+    printf "deb http://mirrors.aliyun.com/ubuntu/ jammy main restricted universe multiverse\n\
+deb http://mirrors.aliyun.com/ubuntu/ jammy-updates main restricted universe multiverse\n\
+deb http://mirrors.aliyun.com/ubuntu/ jammy-backports main restricted universe multiverse\n\
+deb http://mirrors.aliyun.com/ubuntu/ jammy-security main restricted universe multiverse" > /etc/apt/sources.list && \
     apt-get update && \
-    apt-get install -y tzdata curl ca-certificates redis-server python3 supervisor && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    tzdata curl redis-server python3 supervisor && \
     ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
-    dpkg-reconfigure -f noninteractive tzdata
+    dpkg-reconfigure -f noninteractive tzdata && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # 2. 创建目录
 RUN mkdir -p /etc/supervisor/conf.d /app
