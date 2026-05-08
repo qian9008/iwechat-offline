@@ -27,7 +27,17 @@ jobs:
 
       - name: Build Binary
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp main.go
+          # 如果没有 go.mod，则初始化（假设你的项目名叫 myapp）
+          if [ ! -f go.mod ]; then
+            go mod init myapp
+          fi
+          
+          # 整理依赖
+          go mod tidy
+          
+          # 编译程序
+          # 注意：这里直接编译当前目录 "."，Go 会自动寻找带有 main 函数的文件
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o myapp .
 
       # 第二步：登录 GitHub 容器仓库
       - name: Log in to the Container registry
